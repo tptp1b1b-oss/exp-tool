@@ -1,0 +1,424 @@
+<!--
+ionicinit.min.js 的功能與說明：
+push(name, title)：切換到目標頁，並回傳 Promise；約 100ms 後才 resolve，所以你可安全接 .then(...) 做「切頁後渲染」。
+presentAlert(header=null, message=null, buttons=null)：快速顯示 Ionic Alert；流程是建立元件 → 設定內容/按鈕 → 顯示 → 移除，避免殘留 DOM。
+presentActionSheet(header=null, subHeader=null, buttons=null)：給使用者一組操作選單（例如編輯/刪除/取消）；同樣會在關閉後清理元件。
+presentToast(message=null, duration=1800, position='bottom', color=null)：短暫提示訊息（成功、錯誤、已儲存等），支援時間、位置、顏色與按鈕。
+window.load 初始化段：動態載入 Ionic CDN 資源、建立 ion-app/ion-router/ion-nav、自動把所有 page-* 註冊成 route，最後呼叫 setUpIonic 完成啟動。
+
+ionicinit.min.js 的使用方式：
+1. 在 HTML 中使用 page-* 標籤定義頁面結構。
+2. 在 JavaScript 中使用 push('page-xxx') 切換頁面。
+3. 使用 presentAlert(...)、presentActionSheet(...)、presentToast(...) 顯示提示框。
+-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <meta name="viewport" content="viewport-fit=cover, width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="msapplication-tap-highlight" content="no" />
+    <meta name="HandheldFriendly" content="true" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="港幣記賬" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta name="description" content="以港幣（HK$）記錄日常支出的記賬 PWA" />
+    <title>港幣記賬</title>
+    <link rel="manifest" href="manifest.json" />
+    <link rel="shortcut icon apple-touch-icon" href="appicon.png" />
+    <script src="ionicinit.min.js"></script>
+    <style>
+      :root {
+        --ion-color-primary: #3880ff;
+        --ion-color-primary-rgb: 56, 128, 255;
+        --ion-color-primary-contrast: #ffffff;
+        --ion-color-primary-contrast-rgb: 255, 255, 255;
+        --ion-color-primary-shade: #3171e0;
+        --ion-color-primary-tint: #4c8dff;
+      }
+
+      .stat-card {
+        background: var(--ion-color-light, #f4f5f8);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 12px;
+        text-align: center;
+      }
+
+      .stat-card .label {
+        font-size: 0.85rem;
+        color: var(--ion-color-medium, #92949c);
+        margin-bottom: 4px;
+      }
+
+      .stat-card .value {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--ion-color-dark, #222428);
+      }
+
+      .stat-card .value.amount {
+        color: var(--ion-color-danger, #eb445a);
+      }
+
+      .intro-text {
+        color: var(--ion-color-medium, #92949c);
+        line-height: 1.6;
+        margin-bottom: 20px;
+      }
+
+      .amount-display {
+        text-align: center;
+        padding: 20px;
+        margin: 16px 0;
+        background: var(--ion-color-light, #f4f5f8);
+        border-radius: 12px;
+      }
+
+      .amount-display .label {
+        font-size: 0.9rem;
+        color: var(--ion-color-medium, #92949c);
+      }
+
+      .amount-display .value {
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--ion-color-danger, #eb445a);
+        margin-top: 4px;
+      }
+
+      .empty-state {
+        text-align: center;
+        padding: 48px 16px;
+        color: var(--ion-color-medium, #92949c);
+      }
+
+      .empty-state ion-icon {
+        font-size: 64px;
+        margin-bottom: 12px;
+      }
+
+      .record-amount {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--ion-color-danger, #eb445a);
+      }
+
+      .page-actions ion-button {
+        margin-top: 8px;
+      }
+    </style>
+  </head>
+
+  <body>
+
+    <page-home>
+      <ion-header>
+        <ion-toolbar color="primary">
+          <ion-title>港幣記賬</ion-title>
+        </ion-toolbar>
+      </ion-header>
+      <ion-content class="ion-padding">
+        <h2>歡迎使用港幣記賬</h2>
+        <p class="intro-text">輕鬆記錄日常支出，以港幣（HK$）結算，資料儲存於本機，無需登入。</p>
+
+        <div class="stat-card">
+          <div class="label">紀錄總數</div>
+          <div class="value" id="home-total-count">0</div>
+        </div>
+
+        <div class="stat-card">
+          <div class="label">最新支出金額</div>
+          <div class="value amount" id="home-latest-expense">—</div>
+        </div>
+
+        <div class="page-actions">
+          <ion-button expand="block" shape="round" onclick="goToExpense()">
+            <ion-icon slot="start" name="add-circle-outline"></ion-icon>
+            記一筆支出
+          </ion-button>
+          <ion-button expand="block" shape="round" fill="outline" onclick="goToRecords()">
+            <ion-icon slot="start" name="list-outline"></ion-icon>
+            查看紀錄
+          </ion-button>
+        </div>
+      </ion-content>
+    </page-home>
+
+    <page-expense>
+      <ion-header>
+        <ion-toolbar color="primary">
+          <ion-buttons slot="start">
+            <ion-back-button defaultHref="/"></ion-back-button>
+          </ion-buttons>
+          <ion-title>記賬</ion-title>
+        </ion-toolbar>
+      </ion-header>
+      <ion-content class="ion-padding">
+        <ion-list lines="full">
+          <ion-item>
+            <ion-label position="stacked">支出項目</ion-label>
+            <ion-input id="expense-item" type="text" placeholder="例如：午餐、交通"></ion-input>
+          </ion-item>
+          <ion-item>
+            <ion-label position="stacked">金額（HK$）</ion-label>
+            <ion-input id="expense-amount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></ion-input>
+          </ion-item>
+          <ion-item>
+            <ion-label position="stacked">日期</ion-label>
+            <ion-input id="expense-date" type="date"></ion-input>
+          </ion-item>
+        </ion-list>
+
+        <div class="amount-display">
+          <div class="label">本次支出金額</div>
+          <div class="value" id="expense-display-amount">HK$0.00</div>
+        </div>
+
+        <ion-button expand="block" shape="round" onclick="saveExpense()">
+          <ion-icon slot="start" name="save-outline"></ion-icon>
+          儲存支出
+        </ion-button>
+      </ion-content>
+    </page-expense>
+
+    <page-records>
+      <ion-header>
+        <ion-toolbar color="primary">
+          <ion-buttons slot="start">
+            <ion-back-button defaultHref="/"></ion-back-button>
+          </ion-buttons>
+          <ion-title>支出紀錄</ion-title>
+        </ion-toolbar>
+      </ion-header>
+      <ion-content class="ion-padding">
+        <div id="records-empty" class="empty-state" hidden>
+          <ion-icon name="receipt-outline" color="medium"></ion-icon>
+          <p>尚無支出紀錄</p>
+          <p>前往記賬頁新增第一筆吧</p>
+        </div>
+        <div id="records-list"></div>
+        <ion-button id="btn-clear-all" expand="block" shape="round" color="danger" fill="outline" hidden onclick="confirmClearAll()">
+          <ion-icon slot="start" name="trash-outline"></ion-icon>
+          清除全部紀錄
+        </ion-button>
+      </ion-content>
+    </page-records>
+
+    <script>
+      const STORAGE_KEY = 'hk-expense-records';
+
+      function getRecords() {
+        try {
+          const data = localStorage.getItem(STORAGE_KEY);
+          return data ? JSON.parse(data) : [];
+        } catch {
+          return [];
+        }
+      }
+
+      function saveRecords(records) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+      }
+
+      function formatHKD(amount) {
+        const n = Number(amount);
+        if (!Number.isFinite(n)) return 'HK$0.00';
+        return 'HK$' + n.toFixed(2);
+      }
+
+      function formatDateDisplay(dateStr) {
+        const d = new Date(dateStr + 'T00:00:00');
+        if (isNaN(d.getTime())) return dateStr;
+        return d.toLocaleDateString('zh-HK', { year: 'numeric', month: 'long', day: 'numeric' });
+      }
+
+      function getLatestRecord(records) {
+        if (!records.length) return null;
+        return records.reduce((latest, r) => {
+          const tLatest = new Date(latest.createdAt).getTime();
+          const tCurrent = new Date(r.createdAt).getTime();
+          return tCurrent > tLatest ? r : latest;
+        });
+      }
+
+      function renderHome() {
+        const records = getRecords();
+        const totalEls = document.querySelectorAll('#home-total-count');
+        const latestEls = document.querySelectorAll('#home-latest-expense');
+        if (!totalEls.length || !latestEls.length) return;
+
+        const latest = getLatestRecord(records);
+        const totalText = String(records.length);
+        const latestText = latest ? formatHKD(latest.amount) : '—';
+
+        totalEls.forEach((el) => { el.textContent = totalText; });
+        latestEls.forEach((el) => { el.textContent = latestText; });
+      }
+
+      function updateExpenseDisplay() {
+        const amountInput = document.getElementById('expense-amount');
+        const displayEl = document.getElementById('expense-display-amount');
+        if (!amountInput || !displayEl) return;
+
+        const val = parseFloat(amountInput.value);
+        displayEl.textContent = formatHKD(Number.isFinite(val) && val >= 0 ? val : 0);
+      }
+
+      function initExpenseForm() {
+        const dateInput = document.getElementById('expense-date');
+        const amountInput = document.getElementById('expense-amount');
+        if (dateInput && !dateInput.value) {
+          dateInput.value = new Date().toISOString().slice(0, 10);
+        }
+        if (amountInput) {
+          amountInput.removeEventListener('input', updateExpenseDisplay);
+          amountInput.addEventListener('input', updateExpenseDisplay);
+        }
+        updateExpenseDisplay();
+      }
+
+      function validateExpense() {
+        const item = document.getElementById('expense-item').value.trim();
+        const amountRaw = document.getElementById('expense-amount').value.trim();
+        const date = document.getElementById('expense-date').value;
+
+        if (!item) {
+          return { valid: false, message: '請輸入支出項目。' };
+        }
+        if (!amountRaw) {
+          return { valid: false, message: '請輸入金額。' };
+        }
+        const amount = parseFloat(amountRaw);
+        if (!Number.isFinite(amount) || amount <= 0) {
+          return { valid: false, message: '金額必須為大於 0 的數字。' };
+        }
+        if (!date) {
+          return { valid: false, message: '請選擇日期。' };
+        }
+        return { valid: true, item, amount, date };
+      }
+
+      function saveExpense() {
+        const result = validateExpense();
+        if (!result.valid) {
+          presentAlert('輸入錯誤', result.message);
+          return;
+        }
+
+        const records = getRecords();
+        records.push({
+          id: Date.now(),
+          item: result.item,
+          amount: result.amount,
+          date: result.date,
+          createdAt: new Date().toISOString()
+        });
+        saveRecords(records);
+        renderHome();
+
+        updateExpenseDisplay();
+        presentToast('支出已記錄', 2000, 'bottom', 'success');
+
+        document.getElementById('expense-item').value = '';
+        document.getElementById('expense-amount').value = '';
+        document.getElementById('expense-date').value = new Date().toISOString().slice(0, 10);
+        updateExpenseDisplay();
+      }
+
+      function renderRecords() {
+        const records = getRecords().slice().sort((a, b) => {
+          const dateCmp = b.date.localeCompare(a.date);
+          if (dateCmp !== 0) return dateCmp;
+          return new Date(b.createdAt) - new Date(a.createdAt);
+        });
+
+        const listEl = document.getElementById('records-list');
+        const emptyEl = document.getElementById('records-empty');
+        const clearBtn = document.getElementById('btn-clear-all');
+        if (!listEl || !emptyEl || !clearBtn) return;
+
+        listEl.innerHTML = '';
+
+        if (records.length === 0) {
+          emptyEl.hidden = false;
+          clearBtn.hidden = true;
+          return;
+        }
+
+        emptyEl.hidden = true;
+        clearBtn.hidden = false;
+
+        records.forEach((r) => {
+          const card = document.createElement('ion-card');
+          card.innerHTML =
+            '<ion-card-header>' +
+              '<ion-card-title>' + escapeHtml(r.item) + '</ion-card-title>' +
+              '<ion-card-subtitle>' + escapeHtml(formatDateDisplay(r.date)) + '</ion-card-subtitle>' +
+            '</ion-card-header>' +
+            '<ion-card-content>' +
+              '<div class="record-amount">' + escapeHtml(formatHKD(r.amount)) + '</div>' +
+            '</ion-card-content>';
+          listEl.appendChild(card);
+        });
+      }
+
+      function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+      }
+
+      function confirmClearAll() {
+        presentAlert('清除紀錄', '確定要清除全部支出紀錄嗎？此操作無法復原。', [
+          { text: '取消', role: 'cancel' },
+          {
+            text: '清除',
+            role: 'destructive',
+            handler: () => {
+              saveRecords([]);
+              renderHome();
+              renderRecords();
+              presentToast('已清除全部紀錄', 2000, 'bottom', 'warning');
+            }
+          }
+        ]);
+      }
+
+      function goToExpense() {
+        push('page-expense').then(() => {
+          initExpenseForm();
+        });
+      }
+
+      function goToRecords() {
+        push('page-records').then(() => {
+          renderRecords();
+        });
+      }
+
+      function setupNavRefresh() {
+        const nav = document.querySelector('ion-nav');
+        if (!nav) {
+          setTimeout(setupNavRefresh, 100);
+          return;
+        }
+
+        nav.addEventListener('ionNavDidChange', () => {
+          setTimeout(() => {
+            if (document.querySelector('ion-nav page-home')) renderHome();
+            if (document.querySelector('ion-nav page-records')) renderRecords();
+          }, 120);
+        });
+
+        renderHome();
+      }
+
+      window.addEventListener('load', () => {
+        setTimeout(setupNavRefresh, 350);
+      });
+    </script>
+
+  </body>
+</html>

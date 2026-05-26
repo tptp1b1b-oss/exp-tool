@@ -1,0 +1,20 @@
+{
+  "name": "港幣記賬",
+  "short_name": "記賬",
+  "description": "以港幣（HK$）記錄日常支出的記賬 Progressive Web App",
+  "lang": "zh-Hant",
+  "theme_color": "#3880ff",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "orientation": "portrait",
+  "scope": ".",
+  "start_url": "./index.html",
+  "icons": [
+    {
+      "src": "appicon.png",
+      "type": "image/png",
+      "sizes": "500x500",
+      "purpose": "any maskable"
+    }
+  ]
+}
