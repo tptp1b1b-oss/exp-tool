@@ -1,424 +1,1743 @@
-<!--
-ionicinit.min.js 的功能與說明：
-push(name, title)：切換到目標頁，並回傳 Promise；約 100ms 後才 resolve，所以你可安全接 .then(...) 做「切頁後渲染」。
-presentAlert(header=null, message=null, buttons=null)：快速顯示 Ionic Alert；流程是建立元件 → 設定內容/按鈕 → 顯示 → 移除，避免殘留 DOM。
-presentActionSheet(header=null, subHeader=null, buttons=null)：給使用者一組操作選單（例如編輯/刪除/取消）；同樣會在關閉後清理元件。
-presentToast(message=null, duration=1800, position='bottom', color=null)：短暫提示訊息（成功、錯誤、已儲存等），支援時間、位置、顏色與按鈕。
-window.load 初始化段：動態載入 Ionic CDN 資源、建立 ion-app/ion-router/ion-nav、自動把所有 page-* 註冊成 route，最後呼叫 setUpIonic 完成啟動。
-
-ionicinit.min.js 的使用方式：
-1. 在 HTML 中使用 page-* 標籤定義頁面結構。
-2. 在 JavaScript 中使用 push('page-xxx') 切換頁面。
-3. 使用 presentAlert(...)、presentActionSheet(...)、presentToast(...) 顯示提示框。
--->
 <!DOCTYPE html>
-<html lang="zh-Hant">
-  <head>
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-    <meta name="viewport" content="viewport-fit=cover, width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="format-detection" content="telephone=no" />
-    <meta name="msapplication-tap-highlight" content="no" />
-    <meta name="HandheldFriendly" content="true" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="港幣記賬" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
-    <meta name="description" content="以港幣（HK$）記錄日常支出的記賬 PWA" />
-    <title>港幣記賬</title>
-    <link rel="manifest" href="manifest.json" />
-    <link rel="shortcut icon apple-touch-icon" href="appicon.png" />
-    <script src="ionicinit.min.js"></script>
-    <style>
-      :root {
-        --ion-color-primary: #3880ff;
-        --ion-color-primary-rgb: 56, 128, 255;
-        --ion-color-primary-contrast: #ffffff;
-        --ion-color-primary-contrast-rgb: 255, 255, 255;
-        --ion-color-primary-shade: #3171e0;
-        --ion-color-primary-tint: #4c8dff;
-      }
-
-      .stat-card {
-        background: var(--ion-color-light, #f4f5f8);
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 12px;
-        text-align: center;
-      }
-
-      .stat-card .label {
-        font-size: 0.85rem;
-        color: var(--ion-color-medium, #92949c);
-        margin-bottom: 4px;
-      }
-
-      .stat-card .value {
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: var(--ion-color-dark, #222428);
-      }
-
-      .stat-card .value.amount {
-        color: var(--ion-color-danger, #eb445a);
-      }
-
-      .intro-text {
-        color: var(--ion-color-medium, #92949c);
-        line-height: 1.6;
-        margin-bottom: 20px;
-      }
-
-      .amount-display {
-        text-align: center;
-        padding: 20px;
-        margin: 16px 0;
-        background: var(--ion-color-light, #f4f5f8);
-        border-radius: 12px;
-      }
-
-      .amount-display .label {
-        font-size: 0.9rem;
-        color: var(--ion-color-medium, #92949c);
-      }
-
-      .amount-display .value {
-        font-size: 2rem;
-        font-weight: 700;
-        color: var(--ion-color-danger, #eb445a);
-        margin-top: 4px;
-      }
-
-      .empty-state {
-        text-align: center;
-        padding: 48px 16px;
-        color: var(--ion-color-medium, #92949c);
-      }
-
-      .empty-state ion-icon {
-        font-size: 64px;
-        margin-bottom: 12px;
-      }
-
-      .record-amount {
-        font-size: 1.25rem;
-        font-weight: 700;
-        color: var(--ion-color-danger, #eb445a);
-      }
-
-      .page-actions ion-button {
-        margin-top: 8px;
-      }
-    </style>
-  </head>
-
-  <body>
-
-    <page-home>
-      <ion-header>
-        <ion-toolbar color="primary">
-          <ion-title>港幣記賬</ion-title>
-        </ion-toolbar>
-      </ion-header>
-      <ion-content class="ion-padding">
-        <h2>歡迎使用港幣記賬</h2>
-        <p class="intro-text">輕鬆記錄日常支出，以港幣（HK$）結算，資料儲存於本機，無需登入。</p>
-
-        <div class="stat-card">
-          <div class="label">紀錄總數</div>
-          <div class="value" id="home-total-count">0</div>
-        </div>
-
-        <div class="stat-card">
-          <div class="label">最新支出金額</div>
-          <div class="value amount" id="home-latest-expense">—</div>
-        </div>
-
-        <div class="page-actions">
-          <ion-button expand="block" shape="round" onclick="goToExpense()">
-            <ion-icon slot="start" name="add-circle-outline"></ion-icon>
-            記一筆支出
-          </ion-button>
-          <ion-button expand="block" shape="round" fill="outline" onclick="goToRecords()">
-            <ion-icon slot="start" name="list-outline"></ion-icon>
-            查看紀錄
-          </ion-button>
-        </div>
-      </ion-content>
-    </page-home>
-
-    <page-expense>
-      <ion-header>
-        <ion-toolbar color="primary">
-          <ion-buttons slot="start">
-            <ion-back-button defaultHref="/"></ion-back-button>
-          </ion-buttons>
-          <ion-title>記賬</ion-title>
-        </ion-toolbar>
-      </ion-header>
-      <ion-content class="ion-padding">
-        <ion-list lines="full">
-          <ion-item>
-            <ion-label position="stacked">支出項目</ion-label>
-            <ion-input id="expense-item" type="text" placeholder="例如：午餐、交通"></ion-input>
-          </ion-item>
-          <ion-item>
-            <ion-label position="stacked">金額（HK$）</ion-label>
-            <ion-input id="expense-amount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></ion-input>
-          </ion-item>
-          <ion-item>
-            <ion-label position="stacked">日期</ion-label>
-            <ion-input id="expense-date" type="date"></ion-input>
-          </ion-item>
-        </ion-list>
-
-        <div class="amount-display">
-          <div class="label">本次支出金額</div>
-          <div class="value" id="expense-display-amount">HK$0.00</div>
-        </div>
-
-        <ion-button expand="block" shape="round" onclick="saveExpense()">
-          <ion-icon slot="start" name="save-outline"></ion-icon>
-          儲存支出
-        </ion-button>
-      </ion-content>
-    </page-expense>
-
-    <page-records>
-      <ion-header>
-        <ion-toolbar color="primary">
-          <ion-buttons slot="start">
-            <ion-back-button defaultHref="/"></ion-back-button>
-          </ion-buttons>
-          <ion-title>支出紀錄</ion-title>
-        </ion-toolbar>
-      </ion-header>
-      <ion-content class="ion-padding">
-        <div id="records-empty" class="empty-state" hidden>
-          <ion-icon name="receipt-outline" color="medium"></ion-icon>
-          <p>尚無支出紀錄</p>
-          <p>前往記賬頁新增第一筆吧</p>
-        </div>
-        <div id="records-list"></div>
-        <ion-button id="btn-clear-all" expand="block" shape="round" color="danger" fill="outline" hidden onclick="confirmClearAll()">
-          <ion-icon slot="start" name="trash-outline"></ion-icon>
-          清除全部紀錄
-        </ion-button>
-      </ion-content>
-    </page-records>
-
-    <script>
-      const STORAGE_KEY = 'hk-expense-records';
-
-      function getRecords() {
-        try {
-          const data = localStorage.getItem(STORAGE_KEY);
-          return data ? JSON.parse(data) : [];
-        } catch {
-          return [];
-        }
-      }
-
-      function saveRecords(records) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-      }
-
-      function formatHKD(amount) {
-        const n = Number(amount);
-        if (!Number.isFinite(n)) return 'HK$0.00';
-        return 'HK$' + n.toFixed(2);
-      }
-
-      function formatDateDisplay(dateStr) {
-        const d = new Date(dateStr + 'T00:00:00');
-        if (isNaN(d.getTime())) return dateStr;
-        return d.toLocaleDateString('zh-HK', { year: 'numeric', month: 'long', day: 'numeric' });
-      }
-
-      function getLatestRecord(records) {
-        if (!records.length) return null;
-        return records.reduce((latest, r) => {
-          const tLatest = new Date(latest.createdAt).getTime();
-          const tCurrent = new Date(r.createdAt).getTime();
-          return tCurrent > tLatest ? r : latest;
-        });
-      }
-
-      function renderHome() {
-        const records = getRecords();
-        const totalEls = document.querySelectorAll('#home-total-count');
-        const latestEls = document.querySelectorAll('#home-latest-expense');
-        if (!totalEls.length || !latestEls.length) return;
-
-        const latest = getLatestRecord(records);
-        const totalText = String(records.length);
-        const latestText = latest ? formatHKD(latest.amount) : '—';
-
-        totalEls.forEach((el) => { el.textContent = totalText; });
-        latestEls.forEach((el) => { el.textContent = latestText; });
-      }
-
-      function updateExpenseDisplay() {
-        const amountInput = document.getElementById('expense-amount');
-        const displayEl = document.getElementById('expense-display-amount');
-        if (!amountInput || !displayEl) return;
-
-        const val = parseFloat(amountInput.value);
-        displayEl.textContent = formatHKD(Number.isFinite(val) && val >= 0 ? val : 0);
-      }
-
-      function initExpenseForm() {
-        const dateInput = document.getElementById('expense-date');
-        const amountInput = document.getElementById('expense-amount');
-        if (dateInput && !dateInput.value) {
-          dateInput.value = new Date().toISOString().slice(0, 10);
-        }
-        if (amountInput) {
-          amountInput.removeEventListener('input', updateExpenseDisplay);
-          amountInput.addEventListener('input', updateExpenseDisplay);
-        }
-        updateExpenseDisplay();
-      }
-
-      function validateExpense() {
-        const item = document.getElementById('expense-item').value.trim();
-        const amountRaw = document.getElementById('expense-amount').value.trim();
-        const date = document.getElementById('expense-date').value;
-
-        if (!item) {
-          return { valid: false, message: '請輸入支出項目。' };
-        }
-        if (!amountRaw) {
-          return { valid: false, message: '請輸入金額。' };
-        }
-        const amount = parseFloat(amountRaw);
-        if (!Number.isFinite(amount) || amount <= 0) {
-          return { valid: false, message: '金額必須為大於 0 的數字。' };
-        }
-        if (!date) {
-          return { valid: false, message: '請選擇日期。' };
-        }
-        return { valid: true, item, amount, date };
-      }
-
-      function saveExpense() {
-        const result = validateExpense();
-        if (!result.valid) {
-          presentAlert('輸入錯誤', result.message);
-          return;
-        }
-
-        const records = getRecords();
-        records.push({
-          id: Date.now(),
-          item: result.item,
-          amount: result.amount,
-          date: result.date,
-          createdAt: new Date().toISOString()
-        });
-        saveRecords(records);
-        renderHome();
-
-        updateExpenseDisplay();
-        presentToast('支出已記錄', 2000, 'bottom', 'success');
-
-        document.getElementById('expense-item').value = '';
-        document.getElementById('expense-amount').value = '';
-        document.getElementById('expense-date').value = new Date().toISOString().slice(0, 10);
-        updateExpenseDisplay();
-      }
-
-      function renderRecords() {
-        const records = getRecords().slice().sort((a, b) => {
-          const dateCmp = b.date.localeCompare(a.date);
-          if (dateCmp !== 0) return dateCmp;
-          return new Date(b.createdAt) - new Date(a.createdAt);
-        });
-
-        const listEl = document.getElementById('records-list');
-        const emptyEl = document.getElementById('records-empty');
-        const clearBtn = document.getElementById('btn-clear-all');
-        if (!listEl || !emptyEl || !clearBtn) return;
-
-        listEl.innerHTML = '';
-
-        if (records.length === 0) {
-          emptyEl.hidden = false;
-          clearBtn.hidden = true;
-          return;
-        }
-
-        emptyEl.hidden = true;
-        clearBtn.hidden = false;
-
-        records.forEach((r) => {
-          const card = document.createElement('ion-card');
-          card.innerHTML =
-            '<ion-card-header>' +
-              '<ion-card-title>' + escapeHtml(r.item) + '</ion-card-title>' +
-              '<ion-card-subtitle>' + escapeHtml(formatDateDisplay(r.date)) + '</ion-card-subtitle>' +
-            '</ion-card-header>' +
-            '<ion-card-content>' +
-              '<div class="record-amount">' + escapeHtml(formatHKD(r.amount)) + '</div>' +
-            '</ion-card-content>';
-          listEl.appendChild(card);
-        });
-      }
-
-      function escapeHtml(str) {
-        const div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
-      }
-
-      function confirmClearAll() {
-        presentAlert('清除紀錄', '確定要清除全部支出紀錄嗎？此操作無法復原。', [
-          { text: '取消', role: 'cancel' },
-          {
-            text: '清除',
-            role: 'destructive',
-            handler: () => {
-              saveRecords([]);
-              renderHome();
-              renderRecords();
-              presentToast('已清除全部紀錄', 2000, 'bottom', 'warning');
-            }
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="學校活動預約日曆 — 多角色預約、衝突偵測、本機儲存，支援手機與電腦。">
+  <meta name="theme-color" content="#4f46e5">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="學校預約日曆">
+  <meta name="application-name" content="學校活動預約日曆">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <title>學校活動預約日曆</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            surface: { DEFAULT: '#f4f5f7', card: '#ffffff', muted: '#e8eaed' },
+            brand: { DEFAULT: '#4f46e5', light: '#818cf8', dark: '#3730a3' }
+          },
+          boxShadow: {
+            card: '0 1px 3px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.04)',
+            modal: '0 8px 32px rgba(0,0,0,.12)'
           }
-        ]);
+        }
       }
+    }
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .calendar-day { min-height: 88px; transition: background .15s; }
+    @media (min-width: 768px) { .calendar-day { min-height: 110px; } }
+    .calendar-day:hover:not(.other-month) { background: #f8fafc; }
+    .time-chip { font-size: 10px; line-height: 1.3; padding: 2px 6px; border-radius: 9999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; cursor: default; }
+    .time-chip.blocked { background: #e5e7eb !important; color: #6b7280 !important; }
+    .mgmt-list { max-height: min(420px, 50vh); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .mgmt-item { cursor: pointer; transition: background .15s, border-color .15s; }
+    .mgmt-item:hover { background: #f8fafc; }
+    .mgmt-item.is-selected { background: #eef2ff; border-color: #818cf8 !important; box-shadow: 0 0 0 1px #818cf8; }
+    .school-card { border: 1px solid #e2e8f0; border-radius: 14px; overflow: hidden; background: #fff; }
+    .school-card.is-selected { border-color: #818cf8; box-shadow: 0 0 0 1px #c7d2fe; }
+    .school-card-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #f8fafc; cursor: pointer; }
+    .school-card.is-selected .school-card-head { background: #eef2ff; }
+    .school-acts { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 6px; }
+    .tooltip-wrap { position: relative; }
+    .tooltip-wrap .tooltip-bubble {
+      visibility: hidden; opacity: 0; position: absolute; bottom: calc(100% + 6px); left: 50%;
+      transform: translateX(-50%); z-index: 50; min-width: 180px; padding: 10px 12px;
+      background: #1e293b; color: #f8fafc; border-radius: 10px; font-size: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,.2); pointer-events: none; transition: opacity .15s, visibility .15s;
+      white-space: normal;
+    }
+    .tooltip-wrap .tooltip-bubble::after {
+      content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+      border: 6px solid transparent; border-top-color: #1e293b;
+    }
+    .tooltip-wrap:hover .tooltip-bubble { visibility: visible; opacity: 1; }
+    .donut-segment { transition: stroke-dasharray .4s ease; }
+    @keyframes slideIn { from { transform: translateY(-12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .modal-enter { animation: slideIn .25s ease; }
+    .overlay-enter { animation: fadeIn .2s ease; }
+    .toast-enter { animation: slideIn .3s ease; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    select, input, button { font-family: inherit; touch-action: manipulation; }
+    .hidden { display: none !important; }
+    .modal-layer { display: none; position: fixed; inset: 0; z-index: 50; }
+    .modal-layer.is-open { display: block; }
+    #conflictModal.modal-layer { z-index: 60; }
+    .search-hit { background: #fef3c7; color: #92400e; font-weight: 600; border-radius: 2px; padding: 0 1px; }
+    .time-chip.is-highlight {
+      outline: 2px solid #f59e0b;
+      outline-offset: 1px;
+      box-shadow: 0 0 0 3px rgba(245, 158, 11, .35);
+      animation: pulseHighlight 1.2s ease 2;
+    }
+    .calendar-day.has-highlight { background: #fffbeb !important; }
+    @keyframes pulseHighlight {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.04); }
+    }
+    @media (max-width: 640px) {
+      header .h-16 { height: auto; min-height: 4rem; padding-top: 0.5rem; padding-bottom: 0.5rem; }
+    }
+  </style>
+</head>
+<body class="bg-surface min-h-screen text-slate-800">
 
-      function goToExpense() {
-        push('page-expense').then(() => {
-          initExpenseForm();
-        });
+  <!-- Navbar -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
+    <div class="max-w-[1600px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-brand flex items-center justify-center text-white shadow-md">
+          <i data-lucide="calendar-days" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold text-slate-900 leading-tight">學校活動預約日曆</h1>
+          <p class="text-xs text-slate-500">Multi-Role School Booking Calendar</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3 flex-wrap justify-end">
+        <div class="flex items-center gap-2 bg-slate-50 rounded-xl px-2 py-1.5 border border-slate-200">
+          <i data-lucide="user-circle" class="w-4 h-4 text-slate-500 ml-1"></i>
+          <select id="userSelect" class="bg-transparent text-sm font-medium text-slate-700 outline-none cursor-pointer pr-1 max-w-[140px]"></select>
+          <button type="button" id="renameUserBtn" class="p-1.5 hover:bg-white rounded-lg transition text-slate-500 hover:text-brand" title="編輯使用者">
+            <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+          </button>
+          <button type="button" id="addUserBtn" class="p-1.5 hover:bg-white rounded-lg transition text-brand" title="新增使用者">
+            <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+        <span id="roleBadge" class="text-xs font-semibold px-2.5 py-1 rounded-full"></span>
+        <span id="saveStatus" class="hidden sm:inline-flex items-center gap-1 text-xs text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full">
+          <i data-lucide="hard-drive" class="w-3 h-3"></i>
+          本機已儲存
+        </span>
+        <button id="exportBtn" class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2 rounded-xl transition shadow-sm">
+          <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+          匯出 Excel
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="max-w-[1600px] mx-auto p-4 sm:p-6 flex flex-col lg:flex-row gap-6">
+
+    <!-- Sidebar -->
+    <aside class="w-full lg:w-80 flex-shrink-0 space-y-5">
+      <!-- Activity search -->
+      <div class="bg-white rounded-2xl shadow-card p-5 border border-slate-100 relative z-20">
+        <div class="flex items-center gap-2 mb-3">
+          <i data-lucide="search" class="w-5 h-5 text-brand"></i>
+          <h2 class="font-semibold text-slate-900">活動搜尋</h2>
+        </div>
+        <div class="relative">
+          <input type="search" id="activitySearchInput" autocomplete="off" placeholder="輸入關鍵字，例如：開放、家長…"
+            class="w-full border border-slate-200 rounded-xl pl-3 pr-9 py-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-brand/30 focus:border-brand outline-none">
+          <button type="button" id="clearSearchBtn" class="hidden absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600" title="清除">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+        <p id="searchHint" class="text-xs text-slate-500 mt-2">打一個字即可搜尋；同一活動會列出所有日子／時間，點選可跳轉。</p>
+        <div id="searchResults" class="mt-3 space-y-2 max-h-80 overflow-y-auto hidden"></div>
+      </div>
+
+      <!-- School + Activity overview -->
+      <div class="bg-white rounded-2xl shadow-card p-5 border border-slate-100">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <i data-lucide="school" class="w-5 h-5 text-brand"></i>
+            <h2 class="font-semibold text-slate-900">學校與活動總覽</h2>
+          </div>
+          <div class="flex items-center gap-1">
+            <button type="button" id="addActivityBtn" class="text-slate-500 hover:bg-slate-100 p-1.5 rounded-lg transition" title="新增活動">
+              <i data-lucide="tags" class="w-4 h-4"></i>
+            </button>
+            <button type="button" id="addProjectBtn" class="text-brand hover:bg-indigo-50 p-1.5 rounded-lg transition" title="新增學校">
+              <i data-lucide="plus-circle" class="w-5 h-5"></i>
+            </button>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 mb-3 text-xs">
+          <span id="projectCount" class="text-slate-600 bg-slate-50 px-2 py-1 rounded-full">0 所學校</span>
+          <span id="activityCount" class="text-slate-600 bg-slate-50 px-2 py-1 rounded-full">0 項活動</span>
+        </div>
+        <p id="projectHint" class="text-xs text-slate-500 mb-2"></p>
+        <div id="schoolOverview" class="mgmt-list space-y-3"></div>
+        <select id="projectSelect" class="hidden"></select>
+        <p id="activityHint" class="hidden"></p>
+        <div id="projectList" class="hidden"></div>
+        <div id="activityList" class="hidden"></div>
+      </div>
+
+      <!-- Stats donut -->
+      <div class="bg-white rounded-2xl shadow-card p-5 border border-slate-100">
+        <div class="flex items-center gap-2 mb-4">
+          <i data-lucide="pie-chart" class="w-5 h-5 text-brand"></i>
+          <h2 class="font-semibold text-slate-900">時間分配統計</h2>
+        </div>
+        <div class="flex items-center gap-4">
+          <div class="relative w-28 h-28 flex-shrink-0">
+            <svg id="donutChart" viewBox="0 0 100 100" class="w-full h-full -rotate-90"></svg>
+            <div class="absolute inset-0 flex items-center justify-center">
+              <span id="donutTotal" class="text-sm font-bold text-slate-700">0h</span>
+            </div>
+          </div>
+          <div id="donutLegend" class="flex-1 space-y-1.5 text-xs overflow-hidden"></div>
+        </div>
+      </div>
+
+      <!-- Quick stats -->
+      <div class="bg-white rounded-2xl shadow-card p-5 border border-slate-100">
+        <div class="grid grid-cols-2 gap-3">
+          <div class="bg-slate-50 rounded-xl p-3 text-center">
+            <p class="text-2xl font-bold text-brand" id="statBookings">0</p>
+            <p class="text-xs text-slate-500 mt-1">本月預約</p>
+          </div>
+          <div class="bg-slate-50 rounded-xl p-3 text-center">
+            <p class="text-2xl font-bold text-emerald-600" id="statHours">0</p>
+            <p class="text-xs text-slate-500 mt-1">本月時數</p>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Calendar -->
+    <main class="flex-1 min-w-0">
+      <div class="bg-white rounded-2xl shadow-card border border-slate-100 overflow-hidden">
+        <!-- Calendar header -->
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <button id="prevMonth" class="p-2 hover:bg-slate-100 rounded-xl transition">
+            <i data-lucide="chevron-left" class="w-5 h-5"></i>
+          </button>
+          <h2 id="calendarTitle" class="text-xl font-bold text-slate-900"></h2>
+          <button id="nextMonth" class="p-2 hover:bg-slate-100 rounded-xl transition">
+            <i data-lucide="chevron-right" class="w-5 h-5"></i>
+          </button>
+        </div>
+        <!-- Weekday headers -->
+        <div class="grid grid-cols-7 border-b border-slate-100 bg-slate-50">
+          <div class="text-center py-2.5 text-xs font-semibold text-red-500">日</div>
+          <div class="text-center py-2.5 text-xs font-semibold text-slate-600">一</div>
+          <div class="text-center py-2.5 text-xs font-semibold text-slate-600">二</div>
+          <div class="text-center py-2.5 text-xs font-semibold text-slate-600">三</div>
+          <div class="text-center py-2.5 text-xs font-semibold text-slate-600">四</div>
+          <div class="text-center py-2.5 text-xs font-semibold text-slate-600">五</div>
+          <div class="text-center py-2.5 text-xs font-semibold text-blue-500">六</div>
+        </div>
+        <!-- Calendar grid -->
+        <div id="calendarGrid" class="grid grid-cols-7"></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Booking Modal -->
+  <div id="bookingModal" class="modal-layer">
+    <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm overlay-enter" id="modalOverlay"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-modal w-full max-w-md modal-enter border border-slate-100">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div class="flex items-center gap-2">
+            <i data-lucide="calendar-plus" class="w-5 h-5 text-brand"></i>
+            <h3 id="modalTitle" class="font-semibold text-lg">新增預約</h3>
+          </div>
+          <button type="button" id="closeModal" class="p-1.5 hover:bg-slate-100 rounded-lg transition">
+            <i data-lucide="x" class="w-5 h-5 text-slate-500"></i>
+          </button>
+        </div>
+        <form id="bookingForm" class="p-6 space-y-4">
+          <input type="hidden" id="bookingId">
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">日期</label>
+            <input type="date" id="bookingDate" required class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-brand/30 focus:border-brand outline-none">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1.5">開始時間</label>
+              <input type="time" id="startTime" required class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-brand/30 focus:border-brand outline-none">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1.5">結束時間</label>
+              <input type="time" id="endTime" required class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-brand/30 focus:border-brand outline-none">
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">學校</label>
+            <select id="bookingProject" required class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-brand/30 focus:border-brand outline-none"></select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">活動類別</label>
+            <select id="bookingActivity" required class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-brand/30 focus:border-brand outline-none"></select>
+          </div>
+          <div class="flex gap-3 pt-2">
+            <button type="button" id="deleteBookingBtn" class="hidden flex-1 border border-red-200 text-red-600 hover:bg-red-50 font-medium py-2.5 rounded-xl transition text-sm">
+              刪除預約
+            </button>
+            <button type="submit" class="flex-1 bg-brand hover:bg-brand-dark text-white font-medium py-2.5 rounded-xl transition text-sm shadow-sm">
+              儲存預約
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Activity Modal -->
+  <div id="activityModal" class="modal-layer">
+    <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm overlay-enter" id="activityOverlay"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-modal w-full max-w-sm modal-enter border border-slate-100">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <h3 id="activityModalTitle" class="font-semibold text-lg">新增活動類別</h3>
+          <button type="button" id="closeActivityModal" class="p-1.5 hover:bg-slate-100 rounded-lg transition">
+            <i data-lucide="x" class="w-5 h-5 text-slate-500"></i>
+          </button>
+        </div>
+        <form id="activityForm" class="p-6 space-y-4">
+          <input type="hidden" id="activityEditId">
+          <input type="hidden" id="activityProjectId">
+          <div id="activityProjectField" class="hidden">
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">所屬學校</label>
+            <select id="activityProjectSelect" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-brand/30 focus:border-brand outline-none"></select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">活動名稱</label>
+            <input type="text" id="activityName" required placeholder="例：需求討論" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-brand/30 focus:border-brand outline-none">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">代表顏色</label>
+            <div class="flex items-center gap-3">
+              <input type="color" id="activityColor" value="#4f46e5" class="w-12 h-10 rounded-lg cursor-pointer border-0">
+              <span id="colorPreview" class="text-sm text-slate-500">#4f46e5</span>
+            </div>
+          </div>
+          <div class="flex gap-3 pt-1">
+            <button type="button" id="deleteActivityBtn" class="hidden flex-1 border border-red-200 text-red-600 hover:bg-red-50 font-medium py-2.5 rounded-xl transition text-sm">刪除</button>
+            <button type="submit" id="activitySubmitBtn" class="flex-1 bg-brand hover:bg-brand-dark text-white font-medium py-2.5 rounded-xl transition text-sm">儲存</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Conflict Error Modal -->
+  <div id="conflictModal" class="modal-layer">
+    <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm overlay-enter"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-modal w-full max-w-sm modal-enter border border-red-200 overflow-hidden">
+        <div class="bg-red-50 px-6 py-5 flex items-start gap-4">
+          <div class="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+            <i data-lucide="alert-triangle" class="w-6 h-6 text-red-600"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-red-800 text-lg">時間衝突</h3>
+            <p class="text-red-700 text-sm mt-1 leading-relaxed">[時間衝突] 該時段已被其他活動預約，請選擇其他時間！</p>
+          </div>
+        </div>
+        <div class="px-6 py-4 flex justify-end">
+          <button type="button" id="closeConflict" class="bg-red-600 hover:bg-red-700 text-white font-medium px-5 py-2 rounded-xl transition text-sm">我知道了</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toastContainer" class="fixed top-20 right-4 z-[70] space-y-2"></div>
+
+  <!-- Project Modal -->
+  <div id="projectModal" class="modal-layer">
+    <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm overlay-enter" id="projectOverlay"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-modal w-full max-w-sm modal-enter border border-slate-100">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <h3 id="projectModalTitle" class="font-semibold text-lg">新增學校</h3>
+          <button type="button" id="closeProjectModal" class="p-1.5 hover:bg-slate-100 rounded-lg transition">
+            <i data-lucide="x" class="w-5 h-5 text-slate-500"></i>
+          </button>
+        </div>
+        <form id="projectForm" class="p-6 space-y-4">
+          <input type="hidden" id="projectEditId">
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">學校名稱</label>
+            <input type="text" id="projectName" required placeholder="例：聖公會學校" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-brand/30 focus:border-brand outline-none">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">代表顏色</label>
+            <div class="flex items-center gap-3">
+              <input type="color" id="projectColor" value="#4f46e5" class="w-12 h-10 rounded-lg cursor-pointer border-0">
+              <span id="projectColorPreview" class="text-sm text-slate-500">#4f46e5</span>
+            </div>
+          </div>
+          <div class="flex gap-3 pt-1">
+            <button type="button" id="deleteProjectBtn" class="hidden flex-1 border border-red-200 text-red-600 hover:bg-red-50 font-medium py-2.5 rounded-xl transition text-sm">刪除學校</button>
+            <button type="submit" class="flex-1 bg-brand hover:bg-brand-dark text-white font-medium py-2.5 rounded-xl transition text-sm">儲存</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- User Modal -->
+  <div id="userModal" class="modal-layer">
+    <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm overlay-enter" id="userOverlay"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-modal w-full max-w-sm modal-enter border border-slate-100">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <h3 id="userModalTitle" class="font-semibold text-lg">編輯使用者</h3>
+          <button type="button" id="closeUserModal" class="p-1.5 hover:bg-slate-100 rounded-lg transition">
+            <i data-lucide="x" class="w-5 h-5 text-slate-500"></i>
+          </button>
+        </div>
+        <form id="userForm" class="p-6 space-y-4">
+          <input type="hidden" id="userEditId">
+          <div id="userTargetWrap" class="hidden">
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">選擇要編輯的使用者</label>
+            <select id="userTargetSelect" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-brand/30 focus:border-brand outline-none"></select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">顯示名稱</label>
+            <input type="text" id="userName" required placeholder="例：陳小明" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-brand/30 focus:border-brand outline-none">
+          </div>
+          <div id="userRoleField" class="hidden">
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">角色</label>
+            <select id="userRole" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-brand/30 focus:border-brand outline-none">
+              <option value="user">一般使用者</option>
+              <option value="admin">管理者</option>
+            </select>
+          </div>
+          <div id="userProjectField">
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">所屬學校</label>
+            <select id="userProject" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-brand/30 focus:border-brand outline-none"></select>
+            <p class="text-xs text-slate-500 mt-1.5">一般使用者只能管理／查看所屬學校的明細。</p>
+          </div>
+          <div class="flex gap-3 pt-1">
+            <button type="button" id="deleteUserBtn" class="hidden flex-1 border border-red-200 text-red-600 hover:bg-red-50 font-medium py-2.5 rounded-xl transition text-sm">刪除</button>
+            <button type="submit" class="flex-1 bg-brand hover:bg-brand-dark text-white font-medium py-2.5 rounded-xl transition text-sm">儲存</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+
+  const STORAGE_KEY = 'booking_calendar_data_v2';
+  const SESSION_KEY = 'booking_calendar_session';
+  const LEGACY_KEY = 'booking_calendar_data_v1';
+
+  const DEFAULT_USERS = [
+    { id: 'user_a', name: '使用者 A', role: 'user', projectId: 'proj_alpha' },
+    { id: 'user_b', name: '使用者 B', role: 'user', projectId: 'proj_beta' },
+    { id: 'admin', name: 'Admin（管理者）', role: 'admin', projectId: null }
+  ];
+
+  const DEFAULT_DATA = {
+    users: JSON.parse(JSON.stringify(DEFAULT_USERS)),
+    projects: [
+      { id: 'proj_alpha', name: '聖公會小學', color: '#4f46e5' },
+      { id: 'proj_beta', name: '培正中學', color: '#059669' },
+      { id: 'proj_gamma', name: '協恩中學', color: '#d97706' }
+    ],
+    activities: {
+      proj_alpha: [
+        { id: 'act_a1', name: '開放日', color: '#6366f1' },
+        { id: 'act_a2', name: '家長會', color: '#8b5cf6' },
+        { id: 'act_a3', name: '導覽活動', color: '#a78bfa' }
+      ],
+      proj_beta: [
+        { id: 'act_b1', name: '校際比賽', color: '#10b981' },
+        { id: 'act_b2', name: '升學講座', color: '#34d399' },
+        { id: 'act_b3', name: '校園參觀', color: '#6ee7b7' }
+      ],
+      proj_gamma: [
+        { id: 'act_g1', name: '畢業禮彩排', color: '#f59e0b' },
+        { id: 'act_g2', name: '興趣班體驗', color: '#fbbf24' }
+      ]
+    },
+    bookings: []
+  };
+
+  function genId() {
+    return 'id_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+
+  function createDefaultData() {
+    const data = JSON.parse(JSON.stringify(DEFAULT_DATA));
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    data.bookings = [
+      { id: genId(), date: `${y}-${m}-05`, startTime: '09:00', endTime: '11:00', projectId: 'proj_alpha', activityId: 'act_a1', createdBy: 'user_a' },
+      { id: genId(), date: `${y}-${m}-08`, startTime: '14:00', endTime: '16:30', projectId: 'proj_beta', activityId: 'act_b2', createdBy: 'user_b' },
+      { id: genId(), date: `${y}-${m}-12`, startTime: '10:00', endTime: '12:00', projectId: 'proj_alpha', activityId: 'act_a2', createdBy: 'user_a' },
+      { id: genId(), date: `${y}-${m}-15`, startTime: '13:00', endTime: '15:00', projectId: 'proj_gamma', activityId: 'act_g1', createdBy: 'admin' }
+    ];
+    return data;
+  }
+
+  function normalizeData(data) {
+    if (!data || typeof data !== 'object') return null;
+    if (!Array.isArray(data.projects) || !data.projects.length) return null;
+    if (!data.activities || typeof data.activities !== 'object') return null;
+    if (!Array.isArray(data.bookings)) data.bookings = [];
+    if (!Array.isArray(data.users) || !data.users.length) {
+      data.users = JSON.parse(JSON.stringify(DEFAULT_USERS));
+    }
+    data.users = data.users.map(u => ({
+      id: u.id,
+      name: u.name || u.id,
+      role: u.role === 'admin' ? 'admin' : 'user',
+      projectId: u.role === 'admin' ? null : (u.projectId || data.projects[0].id)
+    }));
+    data.projects = data.projects.map(p => ({
+      id: p.id,
+      name: p.name || '未命名學校',
+      color: p.color || '#4f46e5'
+    }));
+    data.projects.forEach(p => {
+      if (!Array.isArray(data.activities[p.id])) data.activities[p.id] = [];
+    });
+    return data;
+  }
+
+  function loadData() {
+    try {
+      let raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) raw = localStorage.getItem(LEGACY_KEY);
+      if (raw) {
+        const parsed = normalizeData(JSON.parse(raw));
+        if (parsed) {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+          return parsed;
+        }
       }
+    } catch (e) { /* ignore corrupt storage */ }
+    const data = createDefaultData();
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) { /* ignore */ }
+    return data;
+  }
 
-      function goToRecords() {
-        push('page-records').then(() => {
-          renderRecords();
-        });
+  function loadSession(users) {
+    try {
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (raw) {
+        const u = users.find(u => u.id === JSON.parse(raw).userId);
+        if (u) return { ...u };
       }
+    } catch (e) { /* ignore */ }
+    return { ...(users[0] || DEFAULT_USERS[0]) };
+  }
 
-      function setupNavRefresh() {
-        const nav = document.querySelector('ion-nav');
-        if (!nav) {
-          setTimeout(setupNavRefresh, 100);
-          return;
+  let state = loadData();
+  let currentUser = loadSession(state.users);
+  let viewYear = new Date().getFullYear();
+  let viewMonth = new Date().getMonth();
+  let selectedProjectId = currentUser.role === 'admin'
+    ? (state.projects[0] && state.projects[0].id)
+    : currentUser.projectId;
+  let highlightActivityKey = null; // `${projectId}::${activityId}`
+  let highlightBookingId = null;
+  let highlightClearTimer = null;
+
+  function flashSaveStatus() {
+    const el = document.getElementById('saveStatus');
+    if (!el) return;
+    const now = new Date();
+    const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    el.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4"/></svg> 已儲存 ${time}`;
+    el.classList.remove('opacity-50');
+    el.classList.add('opacity-100');
+  }
+
+  function saveData(data) {
+    state = data;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      flashSaveStatus();
+    } catch (e) {
+      showToast('本機儲存失敗，請檢查瀏覽器設定', 'error');
+    }
+  }
+
+  function saveSession() {
+    try { localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: currentUser.id })); } catch (e) { /* ignore */ }
+  }
+
+  function refreshIcons() {
+    try {
+      if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    } catch (e) { /* icons optional */ }
+  }
+
+  function openModal(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('is-open');
+  }
+
+  function closeModal(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('is-open');
+  }
+
+  function getUsers() { return state.users; }
+
+  function getProject(id) {
+    return state.projects.find(p => p.id === id);
+  }
+
+  function getActivity(projectId, activityId) {
+    return (state.activities[projectId] || []).find(a => a.id === activityId);
+  }
+
+  function syncCurrentUser() {
+    const u = state.users.find(x => x.id === currentUser.id);
+    if (u) currentUser = { ...u };
+  }
+
+  // ─── Time Utilities ───────────────────────────────────────
+  function timeToMinutes(t) {
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+  }
+
+  function calcHours(start, end) {
+    return (timeToMinutes(end) - timeToMinutes(start)) / 60;
+  }
+
+  function timesOverlap(s1, e1, s2, e2) {
+    const a = timeToMinutes(s1), b = timeToMinutes(e1);
+    const c = timeToMinutes(s2), d = timeToMinutes(e2);
+    return a < d && c < b;
+  }
+
+  function hasConflict(date, startTime, endTime, excludeId) {
+    if (timeToMinutes(startTime) >= timeToMinutes(endTime)) return 'invalid';
+    const dayBookings = state.bookings.filter(b => b.date === date && b.id !== excludeId);
+    for (const b of dayBookings) {
+      if (timesOverlap(startTime, endTime, b.startTime, b.endTime)) return b;
+    }
+    return null;
+  }
+
+  function formatDate(d) {
+    const dt = new Date(d + 'T00:00:00');
+    return `${dt.getFullYear()}年${dt.getMonth() + 1}月${dt.getDate()}日`;
+  }
+
+  function uniqueDays(bookings) {
+    return new Set(bookings.map(b => b.date)).size;
+  }
+
+  // ─── Permission Helpers ───────────────────────────────────
+  function isAdmin() { return currentUser.role === 'admin'; }
+
+  function canManageProject(projectId) {
+    if (isAdmin()) return true;
+    return currentUser.projectId === projectId;
+  }
+
+  function canViewDetail(booking) {
+    if (isAdmin()) return true;
+    return booking.projectId === selectedProjectId;
+  }
+
+  function canEditBooking(booking) {
+    if (isAdmin()) return true;
+    return booking.projectId === selectedProjectId;
+  }
+
+  // ─── Activity Search ──────────────────────────────────────
+  function normalizeSearchText(s) {
+    return String(s || '').toLowerCase().replace(/\s+/g, '');
+  }
+
+  function fuzzyScore(text, query) {
+    const t = normalizeSearchText(text);
+    const q = normalizeSearchText(query);
+    if (!q) return 0;
+    if (t === q) return 100;
+    if (t.startsWith(q)) return 90;
+    if (t.includes(q)) return 80;
+    let ti = 0;
+    for (let qi = 0; qi < q.length; qi++) {
+      const found = t.indexOf(q[qi], ti);
+      if (found === -1) return 0;
+      ti = found + 1;
+    }
+    return 40 + Math.max(0, 20 - (t.length - q.length));
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function highlightMatch(text, query) {
+    const raw = String(text || '');
+    const q = String(query || '').trim();
+    if (!q) return escapeHtml(raw);
+    const idx = raw.toLowerCase().indexOf(q.toLowerCase());
+    if (idx === -1) return escapeHtml(raw);
+    return escapeHtml(raw.slice(0, idx))
+      + `<span class="search-hit">${escapeHtml(raw.slice(idx, idx + q.length))}</span>`
+      + escapeHtml(raw.slice(idx + q.length));
+  }
+
+  function getSearchableActivities() {
+    const schools = isAdmin() ? state.projects : getVisibleProjects();
+    const list = [];
+    schools.forEach(school => {
+      (state.activities[school.id] || []).forEach(act => {
+        const bookings = state.bookings
+          .filter(b => b.projectId === school.id && b.activityId === act.id)
+          .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+        list.push({ school, act, bookings });
+      });
+    });
+    return list;
+  }
+
+  function pickJumpDate(bookings) {
+    if (!bookings.length) return null;
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    return bookings.find(b => b.date >= todayStr) || bookings[bookings.length - 1];
+  }
+
+  function renderSearchResults(query) {
+    const box = document.getElementById('searchResults');
+    const hint = document.getElementById('searchHint');
+    const clearBtn = document.getElementById('clearSearchBtn');
+    const q = query.trim();
+
+    clearBtn.classList.toggle('hidden', !q);
+
+    if (!q) {
+      box.classList.add('hidden');
+      box.innerHTML = '';
+      hint.textContent = '打一個字即可搜尋；同一活動會列出所有日子／時間，點選可跳轉。';
+      return;
+    }
+
+    const scored = getSearchableActivities()
+      .map(item => {
+        const nameScore = fuzzyScore(item.act.name, q);
+        const schoolScore = fuzzyScore(item.school.name, q) * 0.6;
+        return { ...item, score: Math.max(nameScore, schoolScore) };
+      })
+      .filter(item => item.score > 0)
+      .sort((a, b) => b.score - a.score || a.act.name.localeCompare(b.act.name));
+
+    box.classList.remove('hidden');
+
+    if (!scored.length) {
+      box.innerHTML = '<p class="text-xs text-slate-400 text-center py-4">找不到相近活動</p>';
+      hint.textContent = `已搜尋「${escapeHtml(q)}」`;
+      return;
+    }
+
+    const totalSlots = scored.reduce((n, item) => n + Math.max(item.bookings.length, 1), 0);
+    hint.textContent = `找到 ${scored.length} 項活動，共 ${totalSlots} 個日程`;
+
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+    box.innerHTML = scored.slice(0, 30).map(item => {
+      const scheduleRows = item.bookings.length
+        ? item.bookings.map((b, idx) => {
+            const isPast = b.date < todayStr;
+            const dateLabel = formatDate(b.date);
+            const timeLabel = `${b.startTime.slice(0, 5)}–${b.endTime.slice(0, 5)}`;
+            const hours = calcHours(b.startTime, b.endTime).toFixed(1);
+            return `
+              <button type="button"
+                class="w-full text-left flex items-center gap-2 px-2.5 py-2 rounded-lg border border-slate-100 bg-white hover:bg-indigo-50 hover:border-indigo-200 transition ${isPast ? 'opacity-70' : ''}"
+                onclick="event.stopPropagation();app.jumpToActivity('${item.school.id}','${item.act.id}','${b.id}')">
+                <span class="text-[10px] font-semibold text-slate-400 w-5 flex-shrink-0">${idx + 1}</span>
+                <div class="min-w-0 flex-1">
+                  <p class="text-xs font-medium text-slate-800">${dateLabel}</p>
+                  <p class="text-[11px] text-slate-500">${timeLabel} · ${hours} 小時${isPast ? ' · 已過' : ''}</p>
+                </div>
+                <svg class="w-3.5 h-3.5 text-slate-400 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+              </button>`;
+          }).join('')
+        : `<p class="text-[11px] text-slate-400 px-2.5 py-2">尚無預約日程
+            <button type="button" class="ml-1 text-brand underline" onclick="app.jumpToActivity('${item.school.id}','${item.act.id}')">仍可選取此活動</button>
+          </p>`;
+
+      return `
+        <div class="rounded-xl border border-slate-200 bg-slate-50 overflow-hidden">
+          <div class="flex items-center gap-2.5 px-3 py-2.5 border-b border-slate-100">
+            <span class="w-3 h-3 rounded-full flex-shrink-0" style="background:${item.act.color}"></span>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-slate-800 truncate">${highlightMatch(item.act.name, q)}</p>
+              <p class="text-[11px] text-slate-500 truncate">${highlightMatch(item.school.name, q)} · ${item.bookings.length} 個日子／時段</p>
+            </div>
+          </div>
+          <div class="p-2 space-y-1.5">${scheduleRows}</div>
+        </div>`;
+    }).join('');
+  }
+
+  function jumpToActivity(projectId, activityId, bookingId) {
+    const school = getProject(projectId);
+    const act = getActivity(projectId, activityId);
+    if (!school || !act) {
+      showToast('找不到該活動', 'error');
+      return;
+    }
+    if (!isAdmin() && currentUser.projectId !== projectId) {
+      showToast('您沒有權限查看此學校活動', 'error');
+      return;
+    }
+
+    selectedProjectId = projectId;
+    const bookings = state.bookings
+      .filter(b => b.projectId === projectId && b.activityId === activityId)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+
+    let jump = bookingId ? bookings.find(b => b.id === bookingId) : null;
+    if (!jump) jump = pickJumpDate(bookings);
+
+    if (jump) {
+      const [y, m] = jump.date.split('-').map(Number);
+      viewYear = y;
+      viewMonth = m - 1;
+      highlightBookingId = jump.id;
+    } else {
+      highlightBookingId = null;
+    }
+
+    highlightActivityKey = `${projectId}::${activityId}`;
+    if (highlightClearTimer) clearTimeout(highlightClearTimer);
+    highlightClearTimer = setTimeout(() => {
+      highlightActivityKey = null;
+      highlightBookingId = null;
+      renderCalendar();
+    }, 6000);
+
+    renderSchoolOverview();
+    renderCalendar();
+    refreshIcons();
+
+    const calendarMain = document.querySelector('main');
+    if (calendarMain) calendarMain.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    if (jump) {
+      showToast(`已跳至「${act.name}」：${formatDate(jump.date)} ${jump.startTime.slice(0, 5)}–${jump.endTime.slice(0, 5)}`, 'success');
+    } else {
+      showToast(`已選取「${act.name}」，此活動尚無預約日程`, 'success');
+    }
+  }
+
+  function clearActivitySearch() {
+    const input = document.getElementById('activitySearchInput');
+    input.value = '';
+    renderSearchResults('');
+    input.focus();
+  }
+
+  // ─── UI Render ────────────────────────────────────────────
+  function renderUserSelect() {
+    const sel = document.getElementById('userSelect');
+    sel.innerHTML = getUsers().map(u =>
+      `<option value="${u.id}" ${u.id === currentUser.id ? 'selected' : ''}>${u.name}</option>`
+    ).join('');
+  }
+
+  function renderRoleBadge() {
+    const badge = document.getElementById('roleBadge');
+    if (isAdmin()) {
+      badge.textContent = '管理者';
+      badge.className = 'text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800';
+    } else {
+      badge.textContent = '一般使用者';
+      badge.className = 'text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-100 text-blue-800';
+    }
+  }
+
+  function getVisibleProjects() {
+    if (isAdmin()) return state.projects;
+    return state.projects.filter(p => p.id === currentUser.projectId);
+  }
+
+  function getActivityActionButtons(projectId, activityId) {
+    if (!canManageProject(projectId)) return '';
+    return `
+      <button type="button" onclick="event.stopPropagation();app.editActivity('${projectId}','${activityId}')" class="text-slate-400 hover:text-brand p-1 rounded transition" title="編輯">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+      </button>
+      <button type="button" onclick="event.stopPropagation();app.deleteActivity('${projectId}','${activityId}')" class="text-slate-400 hover:text-red-500 p-1 rounded transition" title="刪除">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+      </button>`;
+  }
+
+  function renderSchoolOverview() {
+    const overview = document.getElementById('schoolOverview');
+    const hint = document.getElementById('projectHint');
+    const schoolCount = document.getElementById('projectCount');
+    const actCountEl = document.getElementById('activityCount');
+    const sel = document.getElementById('projectSelect');
+    const schools = isAdmin() ? state.projects : getVisibleProjects();
+
+    if (!selectedProjectId || !getProject(selectedProjectId)) {
+      selectedProjectId = schools[0] ? schools[0].id : null;
+    }
+
+    let totalActs = 0;
+    schools.forEach(s => { totalActs += (state.activities[s.id] || []).length; });
+    schoolCount.textContent = `${schools.length} 所學校`;
+    actCountEl.textContent = `${totalActs} 項活動`;
+    sel.innerHTML = schools.map(p =>
+      `<option value="${p.id}" ${p.id === selectedProjectId ? 'selected' : ''}>${p.name}</option>`
+    ).join('');
+
+    if (!schools.length) {
+      overview.innerHTML = '<p class="text-xs text-slate-400 text-center py-8">尚無學校，請按 ＋ 新增</p>';
+      hint.textContent = '按右上角 ＋ 新增第一所學校。';
+      return;
+    }
+
+    overview.innerHTML = schools.map(school => {
+      const acts = state.activities[school.id] || [];
+      const selected = school.id === selectedProjectId;
+      const canEditSchool = canManageProject(school.id);
+      const actRows = acts.length
+        ? acts.map(a => `
+            <div class="mgmt-item flex items-center gap-2 px-2.5 py-2 rounded-lg border border-slate-100 bg-white"
+              onclick="event.stopPropagation();app.selectProject('${school.id}')">
+              <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:${a.color}"></span>
+              <span class="text-sm flex-1 truncate text-slate-700">${a.name}</span>
+              <div class="flex items-center">${getActivityActionButtons(school.id, a.id)}</div>
+            </div>`).join('')
+        : '<p class="text-[11px] text-slate-400 px-2 py-1">尚未建立活動</p>';
+
+      return `
+        <div class="school-card ${selected ? 'is-selected' : ''}">
+          <div class="school-card-head" onclick="app.selectProject('${school.id}')">
+            <span class="w-3.5 h-3.5 rounded-full flex-shrink-0" style="background:${school.color}"></span>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-semibold text-slate-800 truncate">${school.name}</p>
+              <p class="text-[11px] text-slate-400">${acts.length} 項活動</p>
+            </div>
+            ${canEditSchool ? `
+              <button type="button" onclick="event.stopPropagation();app.openActivityModalForSchool('${school.id}')" class="text-slate-400 hover:text-emerald-600 p-1 rounded transition" title="為此校新增活動">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+              </button>
+              <button type="button" onclick="event.stopPropagation();app.editProject('${school.id}')" class="text-slate-400 hover:text-brand p-1 rounded transition" title="編輯學校">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              </button>` : ''}
+          </div>
+          <div class="school-acts">${actRows}</div>
+        </div>`;
+    }).join('');
+
+    hint.textContent = isAdmin()
+      ? '以下同時列出所有學校及其活動；點學校可切換，鉛筆可編輯。'
+      : '以下顯示你的學校及其全部活動。';
+  }
+
+  function renderProjectSelect() { renderSchoolOverview(); }
+  function renderActivityList() { renderSchoolOverview(); }
+
+  function renderDonutChart() {
+    const svg = document.getElementById('donutChart');
+    const legend = document.getElementById('donutLegend');
+    const totalEl = document.getElementById('donutTotal');
+
+    const projectHours = {};
+    state.projects.forEach(p => { projectHours[p.id] = 0; });
+    state.bookings.forEach(b => {
+      projectHours[b.projectId] = (projectHours[b.projectId] || 0) + calcHours(b.startTime, b.endTime);
+    });
+
+    const total = Object.values(projectHours).reduce((s, v) => s + v, 0);
+    totalEl.textContent = total >= 1 ? total.toFixed(1) + 'h' : total.toFixed(1) + 'h';
+
+    const r = 40, cx = 50, cy = 50, circ = 2 * Math.PI * r;
+    let offset = 0;
+    let svgContent = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#e2e8f0" stroke-width="12"/>`;
+    let legendHtml = '';
+
+    state.projects.forEach(p => {
+      const hrs = projectHours[p.id] || 0;
+      const pct = total > 0 ? (hrs / total * 100) : 0;
+      const dash = (pct / 100) * circ;
+      if (dash > 0) {
+        svgContent += `<circle class="donut-segment" cx="${cx}" cy="${cy}" r="${r}" fill="none"
+          stroke="${p.color}" stroke-width="12" stroke-dasharray="${dash} ${circ - dash}"
+          stroke-dashoffset="${-offset}" stroke-linecap="round"/>`;
+        offset += dash;
+      }
+      legendHtml += `<div class="flex items-center gap-1.5">
+        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:${p.color}"></span>
+        <span class="truncate text-slate-600">${p.name}</span>
+        <span class="ml-auto font-medium text-slate-800">${pct.toFixed(0)}%</span>
+      </div>`;
+    });
+
+    svg.innerHTML = svgContent;
+    legend.innerHTML = legendHtml || '<p class="text-xs text-slate-400">尚無資料</p>';
+  }
+
+  function renderMonthStats() {
+    const prefix = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}`;
+    const monthBookings = state.bookings.filter(b => b.date.startsWith(prefix));
+    const visible = isAdmin()
+      ? monthBookings
+      : monthBookings.filter(b => b.projectId === selectedProjectId);
+
+    document.getElementById('statBookings').textContent = visible.length;
+    const hrs = visible.reduce((s, b) => s + calcHours(b.startTime, b.endTime), 0);
+    document.getElementById('statHours').textContent = hrs.toFixed(1);
+  }
+
+  function renderCalendar() {
+    const grid = document.getElementById('calendarGrid');
+    const title = document.getElementById('calendarTitle');
+    title.textContent = `${viewYear}年${viewMonth + 1}月`;
+
+    const firstDay = new Date(viewYear, viewMonth, 1);
+    const lastDay = new Date(viewYear, viewMonth + 1, 0);
+    const startPad = firstDay.getDay();
+    const totalDays = lastDay.getDate();
+
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+    let html = '';
+    const totalCells = Math.ceil((startPad + totalDays) / 7) * 7;
+
+    for (let i = 0; i < totalCells; i++) {
+      const dayNum = i - startPad + 1;
+      const isCurrentMonth = dayNum >= 1 && dayNum <= totalDays;
+      const dateStr = isCurrentMonth
+        ? `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`
+        : null;
+
+      const isToday = dateStr === todayStr;
+      const dayBookings = isCurrentMonth
+        ? state.bookings.filter(b => b.date === dateStr).sort((a, b) => a.startTime.localeCompare(b.startTime))
+        : [];
+
+      let chips = '';
+      let dayHasHighlight = false;
+      dayBookings.forEach(b => {
+        const canView = canViewDetail(b);
+        const proj = getProject(b.projectId);
+        const act = getActivity(b.projectId, b.activityId);
+        const isHighlight = highlightActivityKey === `${b.projectId}::${b.activityId}`
+          || highlightBookingId === b.id;
+        if (isHighlight) dayHasHighlight = true;
+        const label = canView
+          ? `${b.startTime.slice(0,5)}-${b.endTime.slice(0,5)} ${act ? act.name : ''}`
+          : `[已佔用] ${b.startTime.slice(0,5)}-${b.endTime.slice(0,5)}`;
+        const bg = canView ? (act ? act.color : proj?.color || '#94a3b8') : '';
+        const style = canView ? `background:${bg};color:#fff;` : '';
+        const strong = highlightBookingId === b.id ? ' is-highlight' : (isHighlight ? ' is-highlight' : '');
+        const cls = `${canView ? 'time-chip' : 'time-chip blocked'}${strong}`;
+
+        let tooltip = '';
+        if (canView) {
+          tooltip = `<div class="tooltip-bubble">
+            <div class="font-semibold mb-1">${proj?.name || '未知學校'}</div>
+            <div class="text-slate-300">${act?.name || '未知活動'}</div>
+            <div class="text-slate-400 mt-1.5">${formatDate(b.date)}</div>
+            <div class="text-slate-400">${b.startTime} – ${b.endTime}</div>
+            <div class="text-slate-400">${calcHours(b.startTime, b.endTime).toFixed(1)} 小時</div>
+          </div>`;
         }
 
-        nav.addEventListener('ionNavDidChange', () => {
-          setTimeout(() => {
-            if (document.querySelector('ion-nav page-home')) renderHome();
-            if (document.querySelector('ion-nav page-records')) renderRecords();
-          }, 120);
-        });
-
-        renderHome();
-      }
-
-      window.addEventListener('load', () => {
-        setTimeout(setupNavRefresh, 350);
+        chips += `<div class="tooltip-wrap ${cls}" style="${style}" data-booking-id="${b.id}" onclick="event.stopPropagation();app.openBooking('${b.id}')">${label}${tooltip}</div>`;
       });
-    </script>
 
-  </body>
+      html += `<div class="calendar-day border-b border-r border-slate-100 p-1.5 ${isCurrentMonth ? 'cursor-pointer' : 'other-month bg-slate-50/50'} ${isToday ? 'bg-indigo-50/60' : ''} ${dayHasHighlight ? 'has-highlight' : ''}"
+        ${isCurrentMonth ? `onclick="app.openBooking(null,'${dateStr}')"` : ''}>
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full
+            ${isToday ? 'bg-brand text-white' : isCurrentMonth ? 'text-slate-700' : 'text-slate-300'}">${isCurrentMonth ? dayNum : ''}</span>
+          ${isCurrentMonth && dayBookings.length ? `<span class="text-[9px] text-slate-400">${dayBookings.length}筆</span>` : ''}
+        </div>
+        <div class="space-y-0.5">${chips}</div>
+      </div>`;
+    }
+
+    grid.innerHTML = html;
+    renderMonthStats();
+  }
+
+  function renderAll() {
+    renderUserSelect();
+    renderRoleBadge();
+    renderSchoolOverview();
+    renderDonutChart();
+    renderCalendar();
+    refreshIcons();
+  }
+
+  // ─── Modals ───────────────────────────────────────────────
+  function openBookingModal(booking, dateStr) {
+    const form = document.getElementById('bookingForm');
+    const deleteBtn = document.getElementById('deleteBookingBtn');
+    const title = document.getElementById('modalTitle');
+
+    populateBookingProjects();
+    populateBookingActivities(selectedProjectId);
+
+    if (booking) {
+      if (!canEditBooking(booking)) {
+        showToast('您沒有權限編輯此預約', 'error');
+        return;
+      }
+      title.textContent = '編輯預約';
+      document.getElementById('bookingId').value = booking.id;
+      document.getElementById('bookingDate').value = booking.date;
+      document.getElementById('startTime').value = booking.startTime;
+      document.getElementById('endTime').value = booking.endTime;
+      document.getElementById('bookingProject').value = booking.projectId;
+      populateBookingActivities(booking.projectId);
+      document.getElementById('bookingActivity').value = booking.activityId;
+      deleteBtn.classList.remove('hidden');
+    } else {
+      title.textContent = '新增預約';
+      form.reset();
+      document.getElementById('bookingId').value = '';
+      document.getElementById('bookingDate').value = dateStr || '';
+      if (!isAdmin()) {
+        document.getElementById('bookingProject').value = currentUser.projectId;
+        populateBookingActivities(currentUser.projectId);
+      } else {
+        document.getElementById('bookingProject').value = selectedProjectId;
+        populateBookingActivities(selectedProjectId);
+      }
+      deleteBtn.classList.add('hidden');
+    }
+
+    openModal('bookingModal');
+    refreshIcons();
+  }
+
+  function closeBookingModal() {
+    closeModal('bookingModal');
+  }
+
+  function populateBookingProjects() {
+    const sel = document.getElementById('bookingProject');
+    if (isAdmin()) {
+      sel.innerHTML = state.projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+      sel.disabled = false;
+    } else {
+      sel.innerHTML = state.projects
+        .filter(p => p.id === currentUser.projectId)
+        .map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+      sel.disabled = true;
+    }
+  }
+
+  function populateBookingActivities(projectId) {
+    const sel = document.getElementById('bookingActivity');
+    const acts = state.activities[projectId] || [];
+    sel.innerHTML = acts.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+  }
+
+  function showConflictModal() {
+    openModal('conflictModal');
+    refreshIcons();
+  }
+
+  function closeConflictModal() {
+    closeModal('conflictModal');
+  }
+
+  function showToast(msg, type) {
+    const container = document.getElementById('toastContainer');
+    const colors = type === 'error'
+      ? 'bg-red-600 text-white'
+      : type === 'success'
+        ? 'bg-emerald-600 text-white'
+        : 'bg-slate-800 text-white';
+    const el = document.createElement('div');
+    el.className = `toast-enter ${colors} px-4 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2`;
+    el.innerHTML = `<span>${msg}</span>`;
+    container.appendChild(el);
+    setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; setTimeout(() => el.remove(), 300); }, 3000);
+  }
+
+  // ─── Excel Export ─────────────────────────────────────────
+  function exportExcel() {
+    const wb = XLSX.utils.book_new();
+
+    // Sheet 1: Booking details
+    const detailHeader = ['日期', '開始時間', '結束時間', '時數', '學校', '活動', '代表顏色', '建立者'];
+    const detailRows = state.bookings
+      .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime))
+      .map(b => {
+        const proj = getProject(b.projectId);
+        const act = getActivity(b.projectId, b.activityId);
+        const user = getUsers().find(u => u.id === b.createdBy);
+        return [
+          b.date,
+          b.startTime,
+          b.endTime,
+          calcHours(b.startTime, b.endTime),
+          proj?.name || '',
+          act?.name || '',
+          act?.color || proj?.color || '',
+          user?.name || b.createdBy
+        ];
+      });
+
+    const ws1 = XLSX.utils.aoa_to_sheet([detailHeader, ...detailRows]);
+    ws1['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, ws1, '預約明細');
+
+    // Sheet 2: Statistics
+    const statsHeader = ['學校', '總預約天數', '累計預約總時數', '時間分配百分比 %'];
+    const projectStats = state.projects.map(p => {
+      const pBookings = state.bookings.filter(b => b.projectId === p.id);
+      const days = uniqueDays(pBookings);
+      const hours = pBookings.reduce((s, b) => s + calcHours(b.startTime, b.endTime), 0);
+      return { project: p, days, hours };
+    });
+    const totalHours = projectStats.reduce((s, ps) => s + ps.hours, 0);
+
+    const statsRows = projectStats.map(ps => [
+      ps.project.name,
+      ps.days,
+      parseFloat(ps.hours.toFixed(2)),
+      totalHours > 0 ? parseFloat((ps.hours / totalHours * 100).toFixed(1)) : 0
+    ]);
+
+    const totalDays = uniqueDays(state.bookings);
+    statsRows.push(['', '', '', '']);
+    statsRows.push(['合計', totalDays, parseFloat(totalHours.toFixed(2)), 100]);
+
+    const ws2 = XLSX.utils.aoa_to_sheet([statsHeader, ...statsRows]);
+    ws2['!cols'] = [{ wch: 18 }, { wch: 14 }, { wch: 18 }, { wch: 18 }];
+    XLSX.utils.book_append_sheet(wb, ws2, '回顧與統計');
+
+    XLSX.writeFile(wb, 'booking_report.xlsx');
+    showToast('Excel 報表已匯出！', 'success');
+  }
+
+  // ─── Event Handlers ───────────────────────────────────────
+  function handleUserChange(userId) {
+    const user = getUsers().find(u => u.id === userId);
+    if (!user) return;
+    currentUser = { ...user };
+    selectedProjectId = user.role === 'admin'
+      ? (state.projects[0] && state.projects[0].id)
+      : user.projectId;
+    saveSession();
+    renderAll();
+    const q = document.getElementById('activitySearchInput');
+    if (q && q.value.trim()) renderSearchResults(q.value);
+  }
+
+  function handleProjectChange(projectId) {
+    selectedProjectId = projectId;
+    renderSchoolOverview();
+    renderCalendar();
+  }
+
+  function handleBookingSubmit(e) {
+    e.preventDefault();
+    const id = document.getElementById('bookingId').value;
+    const date = document.getElementById('bookingDate').value;
+    const startTime = document.getElementById('startTime').value;
+    const endTime = document.getElementById('endTime').value;
+    const projectId = document.getElementById('bookingProject').value;
+    const activityId = document.getElementById('bookingActivity').value;
+
+    const conflict = hasConflict(date, startTime, endTime, id || null);
+    if (conflict === 'invalid') {
+      showToast('結束時間必須晚於開始時間', 'error');
+      return;
+    }
+    if (conflict) {
+      closeBookingModal();
+      showConflictModal();
+      return;
+    }
+
+    if (id) {
+      const idx = state.bookings.findIndex(b => b.id === id);
+      if (idx >= 0) {
+        state.bookings[idx] = { ...state.bookings[idx], date, startTime, endTime, projectId, activityId };
+      }
+    } else {
+      state.bookings.push({
+        id: genId(), date, startTime, endTime, projectId, activityId, createdBy: currentUser.id
+      });
+    }
+
+    saveData(state);
+    closeBookingModal();
+    showToast('預約已儲存（本機）', 'success');
+    renderAll();
+  }
+
+  function deleteBooking() {
+    const id = document.getElementById('bookingId').value;
+    if (!id) return;
+    const booking = state.bookings.find(b => b.id === id);
+    if (booking && !canEditBooking(booking)) {
+      showToast('您沒有權限刪除此預約', 'error');
+      return;
+    }
+    state.bookings = state.bookings.filter(b => b.id !== id);
+    saveData(state);
+    closeBookingModal();
+    showToast('預約已刪除', 'success');
+    renderAll();
+  }
+
+  function openActivityModal(projectId, activityId) {
+    const title = document.getElementById('activityModalTitle');
+    const deleteBtn = document.getElementById('deleteActivityBtn');
+    const projectField = document.getElementById('activityProjectField');
+    const projectSel = document.getElementById('activityProjectSelect');
+    document.getElementById('activityForm').reset();
+
+    const targetProjectId = projectId || selectedProjectId;
+    if (!targetProjectId || !canManageProject(targetProjectId)) {
+      showToast('您沒有權限管理此學校的活動', 'error');
+      return;
+    }
+
+    document.getElementById('activityProjectId').value = targetProjectId;
+
+    if (isAdmin()) {
+      projectField.classList.remove('hidden');
+      projectSel.innerHTML = state.projects.map(p =>
+        `<option value="${p.id}" ${p.id === targetProjectId ? 'selected' : ''}>${p.name}</option>`
+      ).join('');
+      projectSel.disabled = !!activityId;
+    } else {
+      projectField.classList.add('hidden');
+    }
+
+    if (activityId) {
+      const act = getActivity(targetProjectId, activityId);
+      if (!act) return;
+      title.textContent = '編輯活動類別';
+      document.getElementById('activityEditId').value = activityId;
+      document.getElementById('activityName').value = act.name;
+      document.getElementById('activityColor').value = act.color;
+      document.getElementById('colorPreview').textContent = act.color;
+      deleteBtn.classList.remove('hidden');
+    } else {
+      title.textContent = '新增活動類別';
+      document.getElementById('activityEditId').value = '';
+      document.getElementById('activityColor').value = '#4f46e5';
+      document.getElementById('colorPreview').textContent = '#4f46e5';
+      deleteBtn.classList.add('hidden');
+    }
+
+    openModal('activityModal');
+    refreshIcons();
+  }
+
+  function saveActivity(e) {
+    e.preventDefault();
+    const editId = document.getElementById('activityEditId').value;
+    const projectId = isAdmin()
+      ? document.getElementById('activityProjectSelect').value
+      : document.getElementById('activityProjectId').value;
+    const name = document.getElementById('activityName').value.trim();
+    const color = document.getElementById('activityColor').value;
+    if (!name || !projectId) return;
+
+    if (!canManageProject(projectId)) {
+      showToast('您沒有權限管理此學校的活動', 'error');
+      return;
+    }
+
+    if (!state.activities[projectId]) state.activities[projectId] = [];
+
+    if (editId) {
+      const act = getActivity(projectId, editId);
+      if (!act) return;
+      act.name = name;
+      act.color = color;
+      showToast('活動已更新', 'success');
+    } else {
+      state.activities[projectId].push({ id: genId(), name, color });
+      showToast('活動類別已新增', 'success');
+    }
+
+    selectedProjectId = projectId;
+    saveData(state);
+    closeModal('activityModal');
+    renderAll();
+  }
+
+  function deleteActivity(projectId, activityId) {
+    if (!canManageProject(projectId)) {
+      showToast('您沒有權限刪除此活動', 'error');
+      return;
+    }
+    state.activities[projectId] = (state.activities[projectId] || [])
+      .filter(a => a.id !== activityId);
+    state.bookings = state.bookings.filter(b =>
+      !(b.projectId === projectId && b.activityId === activityId)
+    );
+    saveData(state);
+    closeModal('activityModal');
+    renderAll();
+    showToast('活動已刪除', 'success');
+  }
+
+  // ─── Project / User management ─────────────────────────────
+  function openProjectModal(editId) {
+    const title = document.getElementById('projectModalTitle');
+    const deleteBtn = document.getElementById('deleteProjectBtn');
+    document.getElementById('projectForm').reset();
+    document.getElementById('projectEditId').value = editId || '';
+
+    if (editId) {
+      const p = getProject(editId);
+      if (!p || !canManageProject(editId)) {
+        showToast('您沒有權限編輯此學校', 'error');
+        return;
+      }
+      title.textContent = '編輯學校';
+      document.getElementById('projectName').value = p.name;
+      document.getElementById('projectColor').value = p.color;
+      document.getElementById('projectColorPreview').textContent = p.color;
+      deleteBtn.classList.toggle('hidden', !isAdmin() || state.projects.length <= 1);
+    } else {
+      title.textContent = '新增學校';
+      document.getElementById('projectColor').value = '#4f46e5';
+      document.getElementById('projectColorPreview').textContent = '#4f46e5';
+      deleteBtn.classList.add('hidden');
+    }
+    openModal('projectModal');
+    refreshIcons();
+  }
+
+  function saveProject(e) {
+    e.preventDefault();
+    const editId = document.getElementById('projectEditId').value;
+    const name = document.getElementById('projectName').value.trim();
+    const color = document.getElementById('projectColor').value;
+    if (!name) return;
+
+    if (editId) {
+      if (!canManageProject(editId)) {
+        showToast('您沒有權限編輯此學校', 'error');
+        return;
+      }
+      const p = getProject(editId);
+      if (!p) return;
+      p.name = name;
+      p.color = color;
+      saveData(state);
+      showToast('學校已更新', 'success');
+    } else {
+      const id = genId();
+      state.projects.push({ id, name, color });
+      state.activities[id] = [
+        { id: genId(), name: '預設活動', color }
+      ];
+      // 若目前是一般使用者，自動綁定到新學校
+      if (!isAdmin()) {
+        const me = state.users.find(u => u.id === currentUser.id);
+        if (me) {
+          me.projectId = id;
+          syncCurrentUser();
+        }
+      }
+      selectedProjectId = id;
+      saveData(state);
+      saveSession();
+      showToast('學校已新增並本機儲存', 'success');
+    }
+    closeModal('projectModal');
+    renderAll();
+  }
+
+  function deleteProject() {
+    const editId = document.getElementById('projectEditId').value;
+    if (!editId || !isAdmin()) return;
+    if (state.projects.length <= 1) {
+      showToast('至少需保留一所學校', 'error');
+      return;
+    }
+    state.projects = state.projects.filter(p => p.id !== editId);
+    delete state.activities[editId];
+    state.bookings = state.bookings.filter(b => b.projectId !== editId);
+    state.users.forEach(u => {
+      if (u.role !== 'admin' && u.projectId === editId) {
+        u.projectId = state.projects[0].id;
+      }
+    });
+    selectedProjectId = state.projects[0].id;
+    syncCurrentUser();
+    saveData(state);
+    closeModal('projectModal');
+    showToast('學校已刪除', 'success');
+    renderAll();
+  }
+
+  function openUserModal(mode) {
+    const isCreate = mode === 'create';
+    const actorIsAdmin = isAdmin();
+    const title = document.getElementById('userModalTitle');
+    const targetSelectWrap = document.getElementById('userTargetWrap');
+    const roleField = document.getElementById('userRoleField');
+    const deleteBtn = document.getElementById('deleteUserBtn');
+
+    document.getElementById('userForm').reset();
+
+    if (isCreate) {
+      title.textContent = '新增使用者';
+      targetSelectWrap.classList.add('hidden');
+      roleField.classList.remove('hidden');
+      document.getElementById('userEditId').value = '';
+      document.getElementById('userName').value = '';
+      document.getElementById('userRole').value = 'user';
+      deleteBtn.classList.add('hidden');
+      fillProjectOptions(state.projects[0] ? state.projects[0].id : '', true);
+      toggleProjectFieldByRole('user');
+      openModal('userModal');
+      refreshIcons();
+      return;
+    }
+
+    const user = getUsers().find(u => u.id === currentUser.id);
+    if (!user) return;
+
+    title.textContent = '編輯使用者';
+    roleField.classList.add('hidden');
+
+    const targetSelect = document.getElementById('userTargetSelect');
+    if (actorIsAdmin) {
+      targetSelectWrap.classList.remove('hidden');
+      targetSelect.innerHTML = getUsers().map(u =>
+        `<option value="${u.id}" ${u.id === user.id ? 'selected' : ''}>${u.name}</option>`
+      ).join('');
+    } else {
+      targetSelectWrap.classList.add('hidden');
+    }
+
+    fillUserForm(user, actorIsAdmin);
+    openModal('userModal');
+    refreshIcons();
+  }
+
+  function fillProjectOptions(selectedId, enabled) {
+    const projSel = document.getElementById('userProject');
+    projSel.innerHTML = state.projects.map(p =>
+      `<option value="${p.id}" ${p.id === selectedId ? 'selected' : ''}>${p.name}</option>`
+    ).join('');
+    projSel.disabled = !enabled;
+  }
+
+  function toggleProjectFieldByRole(role) {
+    const projField = document.getElementById('userProjectField');
+    if (role === 'admin') projField.classList.add('hidden');
+    else projField.classList.remove('hidden');
+  }
+
+  function fillUserForm(user, actorIsAdmin) {
+    document.getElementById('userEditId').value = user.id;
+    document.getElementById('userName').value = user.name;
+    const deleteBtn = document.getElementById('deleteUserBtn');
+    const adminCount = state.users.filter(u => u.role === 'admin').length;
+    const canDelete = actorIsAdmin && user.id !== currentUser.id && !(user.role === 'admin' && adminCount <= 1);
+    deleteBtn.classList.toggle('hidden', !canDelete);
+
+    if (user.role === 'admin') {
+      document.getElementById('userProjectField').classList.add('hidden');
+    } else {
+      document.getElementById('userProjectField').classList.remove('hidden');
+      fillProjectOptions(user.projectId, actorIsAdmin);
+    }
+  }
+
+  function saveUser(e) {
+    e.preventDefault();
+    const actorIsAdmin = isAdmin();
+    const id = document.getElementById('userEditId').value;
+    const name = document.getElementById('userName').value.trim();
+    if (!name) return;
+
+    if (!id) {
+      const role = document.getElementById('userRole').value === 'admin' ? 'admin' : 'user';
+      const projectId = role === 'admin'
+        ? null
+        : (document.getElementById('userProject').value || (state.projects[0] && state.projects[0].id));
+      if (role === 'user' && !projectId) {
+        showToast('請先新增至少一所學校', 'error');
+        return;
+      }
+      state.users.push({ id: genId(), name, role, projectId });
+      saveData(state);
+      closeModal('userModal');
+      showToast('使用者已新增，可於上方下拉選單切換', 'success');
+      renderAll();
+      return;
+    }
+
+    const user = state.users.find(u => u.id === id);
+    if (!user) return;
+
+    if (id !== currentUser.id && !actorIsAdmin) {
+      showToast('您只能修改目前登入的使用者', 'error');
+      return;
+    }
+
+    user.name = name;
+    if (user.role !== 'admin' && actorIsAdmin) {
+      const projectId = document.getElementById('userProject').value;
+      if (getProject(projectId)) user.projectId = projectId;
+    }
+
+    syncCurrentUser();
+    if (currentUser.role !== 'admin') selectedProjectId = currentUser.projectId;
+    saveData(state);
+    saveSession();
+    closeModal('userModal');
+    showToast('使用者資料已更新並已本機儲存', 'success');
+    renderAll();
+  }
+
+  function deleteUser() {
+    if (!isAdmin()) return;
+    const id = document.getElementById('userEditId').value;
+    if (!id || id === currentUser.id) {
+      showToast('不能刪除目前登入的使用者', 'error');
+      return;
+    }
+    const user = state.users.find(u => u.id === id);
+    if (!user) return;
+    if (user.role === 'admin' && state.users.filter(u => u.role === 'admin').length <= 1) {
+      showToast('至少需保留一位管理者', 'error');
+      return;
+    }
+    state.users = state.users.filter(u => u.id !== id);
+    saveData(state);
+    closeModal('userModal');
+    showToast('使用者已刪除', 'success');
+    renderAll();
+  }
+
+  // ─── Bind Events ────────────────────────────────────────────
+  document.getElementById('userSelect').addEventListener('change', e => handleUserChange(e.target.value));
+  document.getElementById('renameUserBtn').addEventListener('click', () => openUserModal('edit'));
+  document.getElementById('addUserBtn').addEventListener('click', () => openUserModal('create'));
+  document.getElementById('projectSelect').addEventListener('change', e => handleProjectChange(e.target.value));
+  document.getElementById('addProjectBtn').addEventListener('click', () => openProjectModal(null));
+  document.getElementById('closeProjectModal').addEventListener('click', () => closeModal('projectModal'));
+  document.getElementById('projectOverlay').addEventListener('click', () => closeModal('projectModal'));
+  document.getElementById('projectForm').addEventListener('submit', saveProject);
+  document.getElementById('deleteProjectBtn').addEventListener('click', deleteProject);
+  document.getElementById('projectColor').addEventListener('input', e => {
+    document.getElementById('projectColorPreview').textContent = e.target.value;
+  });
+  document.getElementById('closeUserModal').addEventListener('click', () => closeModal('userModal'));
+  document.getElementById('userOverlay').addEventListener('click', () => closeModal('userModal'));
+  document.getElementById('userForm').addEventListener('submit', saveUser);
+  document.getElementById('deleteUserBtn').addEventListener('click', deleteUser);
+  document.getElementById('userRole').addEventListener('change', e => toggleProjectFieldByRole(e.target.value));
+  document.getElementById('userTargetSelect').addEventListener('change', e => {
+    const u = getUsers().find(x => x.id === e.target.value);
+    if (u) fillUserForm(u, isAdmin());
+  });
+  document.getElementById('prevMonth').addEventListener('click', () => {
+    viewMonth--;
+    if (viewMonth < 0) { viewMonth = 11; viewYear--; }
+    renderCalendar();
+    refreshIcons();
+  });
+  document.getElementById('nextMonth').addEventListener('click', () => {
+    viewMonth++;
+    if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+    renderCalendar();
+    refreshIcons();
+  });
+  document.getElementById('exportBtn').addEventListener('click', exportExcel);
+  document.getElementById('closeModal').addEventListener('click', closeBookingModal);
+  document.getElementById('modalOverlay').addEventListener('click', closeBookingModal);
+  document.getElementById('bookingForm').addEventListener('submit', handleBookingSubmit);
+  document.getElementById('deleteBookingBtn').addEventListener('click', deleteBooking);
+  document.getElementById('closeConflict').addEventListener('click', closeConflictModal);
+  document.getElementById('bookingProject').addEventListener('change', e => populateBookingActivities(e.target.value));
+
+  document.getElementById('addActivityBtn').addEventListener('click', () => openActivityModal(selectedProjectId, null));
+  document.getElementById('closeActivityModal').addEventListener('click', () => closeModal('activityModal'));
+  document.getElementById('activityOverlay').addEventListener('click', () => closeModal('activityModal'));
+  document.getElementById('activityColor').addEventListener('input', e => {
+    document.getElementById('colorPreview').textContent = e.target.value;
+  });
+  document.getElementById('activityForm').addEventListener('submit', saveActivity);
+  document.getElementById('deleteActivityBtn').addEventListener('click', () => {
+    const projectId = document.getElementById('activityProjectId').value
+      || document.getElementById('activityProjectSelect').value;
+    const activityId = document.getElementById('activityEditId').value;
+    if (projectId && activityId) deleteActivity(projectId, activityId);
+  });
+  document.getElementById('activityProjectSelect').addEventListener('change', e => {
+    document.getElementById('activityProjectId').value = e.target.value;
+  });
+
+  document.getElementById('activitySearchInput').addEventListener('input', e => {
+    renderSearchResults(e.target.value);
+  });
+  document.getElementById('clearSearchBtn').addEventListener('click', clearActivitySearch);
+
+  // Public API for inline handlers
+  window.app = {
+    openBooking(bookingId, dateStr) {
+      if (bookingId) {
+        const booking = state.bookings.find(b => b.id === bookingId);
+        if (booking) openBookingModal(booking);
+      } else {
+        openBookingModal(null, dateStr);
+      }
+    },
+    selectProject(projectId) {
+      handleProjectChange(projectId);
+    },
+    editProject(projectId) {
+      openProjectModal(projectId);
+    },
+    openActivityModalForSchool(projectId) {
+      selectedProjectId = projectId;
+      openActivityModal(projectId, null);
+    },
+    editActivity(projectId, activityId) {
+      selectedProjectId = projectId;
+      openActivityModal(projectId, activityId);
+    },
+    jumpToActivity,
+    deleteActivity
+  };
+
+  // Init
+  flashSaveStatus();
+  renderAll();
+})();
+</script>
+</body>
 </html>
